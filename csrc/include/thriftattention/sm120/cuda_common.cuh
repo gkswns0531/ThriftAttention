@@ -166,10 +166,11 @@ __device__ inline uint32_t ta_cvt_8xf32_to_e2m1_packed(
     return packed;
 }
 
+// f0 goes to the upper byte and f1 to byte 0, as in ta_cvt_4xf32_to_e4m3_packed
 __device__ inline uint32_t ta_cvt_2xf32_to_e8m0_packed(float f0, float f1) {
     uint16_t packed;
     asm volatile(
-        "{cvt.rp.satfinite.ue8m0x2.f32 %0, %2, %1;}"
+        "{cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %2;}"
         : "=h"(packed)
         : "f"(f0), "f"(f1));
     return static_cast<uint32_t>(packed);
