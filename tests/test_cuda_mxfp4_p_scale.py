@@ -66,3 +66,21 @@ def test_tiled_mxfp4_keeps_probabilities_far_below_the_row_max(
     # at head_dim 256 the thrift kernel's FP4 pass reads the selection in other units, a separate bug
     if head_dim == 128:
         assert _relative_l2(thrift_out[:, :, rows], ref[:, :, rows]) < 0.3
+
+
+@pytest.mark.parametrize("head_dim", (128, 256))
+def test_single_query_mxfp4_with_one_dominant_key_returns_its_value(head_dim: int) -> None:
+    _requires_sm120_cuda()
+    torch.manual_seed(0)
+    q = torch.ones(1, 1, 2, head_dim, device="cuda", dtype=torch.bfloat16)  # two query heads per KV head
+    k = 0.1 * torch.randn(1, 1, 512, head_dim, device="cuda", dtype=torch.bfloat16)
+    k[:, :, 3] = 4.0  # every other key's probability underflows to zero
+    v = torch.randn(1, 1, 512, head_dim, device="cuda", dtype=torch.bfloat16)
+    q_packed, q_scale = _C.mxfp4_quantize(q, True)
+    k_packed, k_scale = _C.mxfp4_quantize(k, True)
+    v_packed_t, v_scale_t = _C.mxfp4_quantize_transposed(v, True)
+
+    out = _C.fp4_attention_single_query_mxfp4_packed(q_packed, k_packed, v_packed_t, q_scale, k_scale, v_scale_t, True)
+    torch.cuda.synchronize()
+    # with P's scales swapped and divided by the unrounded scale, the error was 5.6 (head_dim 128) to 6.7 (256)
+    assert _relative_l2(out[0, 0], v[0, 0, 3].expand(2, head_dim)) < 0.3
